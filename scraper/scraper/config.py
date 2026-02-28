@@ -1,9 +1,13 @@
 import json
+from pathlib import Path
 from pydantic_settings import BaseSettings
+
+# Find .env at project root (parent of scraper/)
+_env_file = Path(__file__).resolve().parent.parent.parent / ".env"
 
 
 class Settings(BaseSettings):
-    database_url: str
+    database_url: str = "postgresql://tracker:changeme@localhost:5432/property_tracker"
     google_service_account_json: str = "{}"
     google_sheet_id: str = ""
     google_sheet_range: str = "Sheet1!A:I"
@@ -17,7 +21,7 @@ class Settings(BaseSettings):
     def google_credentials(self) -> dict:
         return json.loads(self.google_service_account_json)
 
-    model_config = {"env_file": ".env"}
+    model_config = {"env_file": str(_env_file), "env_file_encoding": "utf-8", "extra": "ignore"}
 
 
 settings = Settings()
