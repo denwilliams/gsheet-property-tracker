@@ -6,7 +6,7 @@ import nodriver
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from .config import settings
 from . import db
-from .sheets import sync_sheet_to_db
+from .sheets import sync_sheet_to_db, update_sold_on_sheet
 from .scrapers.domain_api import scrape_domain
 from .scrapers.rea import scrape_rea
 from .diff import diff_snapshots
@@ -49,8 +49,35 @@ async def _process_url(prop, url, snapshot):
             except Exception as e:
                 logger.warning(f"Image caching failed for {prop.address}: {e}")
 
+        # Write sold details back to sheet if empty
+        await _sync_sold_to_sheet(prop, snapshot)
+
     await db.update_last_checked(prop.id)
     return len(changes)
+
+
+async def _sync_sold_to_sheet(prop, snapshot):
+    """If snapshot shows sold info and the property is missing it, update DB + sheet."""
+    is_sold = "sold" in (snapshot.status or "").lower()
+    if not is_sold:
+        return
+
+    sold_price = snapshot.price if not prop.sold_price else ""
+    sold_date = snapshot.sold_date if not prop.sold_date else ""
+
+    if not sold_price and not sold_date:
+        return
+
+    # Always update DB
+    await db.update_sold_details(prop.id, sold_price, sold_date)
+    logger.info(f"Updated sold details for {prop.address}: price={sold_price!r}, date={sold_date!r}")
+
+    # Write to sheet only if this property came from the sheet
+    if prop.sheet_row:
+        try:
+            update_sold_on_sheet(prop.sheet_row, sold_price, sold_date)
+        except Exception as e:
+            logger.warning(f"Failed to update sheet sold details for {prop.address}: {e}")
 
 
 async def scrape_all():
@@ -61,6 +88,15 @@ async def scrape_all():
     except Exception as e:
         logger.error(f"Failed to sync sheet: {e}")
         return
+
+    # Also pick up properties added via the web UI
+    try:
+        web_properties = await db.get_web_added_properties()
+        if web_properties:
+            logger.info(f"Including {len(web_properties)} web-added properties")
+            properties = properties + web_properties
+    except Exception as e:
+        logger.warning(f"Failed to fetch web-added properties: {e}")
 
     total_changes = 0
     errors = 0

@@ -1,8 +1,11 @@
 <script lang="ts">
-    import type { PageData } from './$types';
+    import type { ActionData, PageData } from './$types';
     import type { Property } from '$lib/types';
+    import { enhance } from '$app/forms';
 
-    let { data }: { data: PageData } = $props();
+    let { data, form }: { data: PageData; form: ActionData } = $props();
+
+    let addingUrl = $state(false);
 
     let search = $state('');
     let areaFilter = $state('all');
@@ -18,7 +21,8 @@
             }
             if (areaFilter !== 'all' && p.area !== areaFilter) return false;
             if (bedsFilter !== 'any') {
-                const beds = parseInt(p.details?.match(/(\d+)\s*Bed/i)?.[1] ?? '0');
+                // details is "4,2,2" (beds,baths,cars) or "3 Bed 2 Bath"
+                const beds = parseInt(p.details?.match(/^(\d+)\s*[,B]/i)?.[1] ?? '0');
                 if (beds !== parseInt(bedsFilter)) return false;
             }
             if (statusFilter === 'sold' && !p.sold_price) return false;
@@ -168,6 +172,45 @@
     </header>
 
     <main class="max-w-7xl mx-auto px-4 py-6">
+        {#if form?.addSuccess}
+            <div class="bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 mb-4 text-sm">
+                Added <strong>{form.addSuccess}</strong>
+            </div>
+        {/if}
+        {#if form?.addError}
+            <div class="bg-red-50 border border-red-200 text-red-800 rounded-lg px-4 py-3 mb-4 text-sm">
+                {form.addError}
+            </div>
+        {/if}
+
+        <form
+            method="POST"
+            action="?/addListing"
+            use:enhance={() => {
+                addingUrl = true;
+                return async ({ update }) => {
+                    addingUrl = false;
+                    await update();
+                };
+            }}
+            class="bg-white rounded-lg shadow-sm border p-4 mb-4 flex gap-2"
+        >
+            <input
+                type="url"
+                name="url"
+                placeholder="Paste a Domain or REA listing URL..."
+                required
+                class="flex-1 border border-gray-300 rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+                type="submit"
+                disabled={addingUrl}
+                class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+            >
+                {addingUrl ? 'Adding...' : 'Add'}
+            </button>
+        </form>
+
         <div class="bg-white rounded-lg shadow-sm border p-4 mb-6 space-y-3">
             <input
                 type="text" placeholder="Search by address or area..."

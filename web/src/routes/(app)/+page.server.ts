@@ -1,5 +1,7 @@
-import type { PageServerLoad } from './$types';
+import type { Actions, PageServerLoad } from './$types';
+import { fail } from '@sveltejs/kit';
 import sql from '$lib/server/db';
+import { parseAndAddListing } from '$lib/server/listings';
 
 export const load: PageServerLoad = async () => {
     const properties = await sql`
@@ -33,4 +35,28 @@ export const load: PageServerLoad = async () => {
         })),
         areas: areas.map((a: any) => a.area),
     };
+};
+
+export const actions: Actions = {
+    addListing: async ({ request }) => {
+        const formData = await request.formData();
+        const url = (formData.get('url') as string)?.trim();
+
+        if (!url) {
+            return fail(400, { addError: 'Please enter a URL' });
+        }
+
+        try {
+            new URL(url);
+        } catch {
+            return fail(400, { addError: 'Invalid URL' });
+        }
+
+        try {
+            const address = await parseAndAddListing(url);
+            return { addSuccess: address };
+        } catch (e: any) {
+            return fail(400, { addError: e.message ?? 'Failed to add listing' });
+        }
+    },
 };

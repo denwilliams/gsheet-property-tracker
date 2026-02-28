@@ -62,6 +62,24 @@ async def get_all_properties() -> list[Property]:
     ]
 
 
+async def get_web_added_properties() -> list[Property]:
+    """Get properties added via the web UI (no sheet_row) that have URLs."""
+    pool = await get_pool()
+    rows = await pool.fetch(
+        "SELECT * FROM properties WHERE sheet_row IS NULL AND (url IS NOT NULL AND url != '') ORDER BY address"
+    )
+    return [
+        Property(
+            id=r["id"], address=r["address"], details=r["details"] or "",
+            area=r["area"] or "", advertised_price=r["advertised_price"] or "",
+            sold_price=r["sold_price"] or "", sold_date=r["sold_date"] or "",
+            notes=r["notes"] or "", url=r["url"] or "", url2=r["url2"] or "",
+            sheet_row=0,
+        )
+        for r in rows
+    ]
+
+
 async def get_snapshot(property_id: str, url: str) -> ListingSnapshot | None:
     pool = await get_pool()
     row = await pool.fetchrow(
@@ -122,6 +140,21 @@ async def save_changes(property_id: str, url: str, changes: list[Change]):
                 """,
                 property_id, url, c.field, c.old_value, c.new_value,
             )
+
+
+async def update_sold_details(property_id: str, sold_price: str, sold_date: str):
+    """Update sold_price and/or sold_date on a property if currently empty."""
+    pool = await get_pool()
+    await pool.execute(
+        """
+        UPDATE properties SET
+            sold_price = COALESCE(NULLIF(sold_price, ''), $2),
+            sold_date = COALESCE(NULLIF(sold_date, ''), $3),
+            updated_at = NOW()
+        WHERE id = $1
+        """,
+        property_id, sold_price, sold_date,
+    )
 
 
 async def update_last_checked(property_id: str):
