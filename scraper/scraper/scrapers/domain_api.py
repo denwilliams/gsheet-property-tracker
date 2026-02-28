@@ -1,35 +1,61 @@
 import json
+import re
 import logging
-from playwright.async_api import async_playwright
+from curl_cffi import requests as cffi_requests
 from ..models import ListingSnapshot
 
 logger = logging.getLogger(__name__)
 
 
 def parse_domain_page_data(data: dict, url: str) -> ListingSnapshot:
-    """Parse listing data from Domain's __NEXT_DATA__ JSON into a ListingSnapshot."""
-    # Domain's __NEXT_DATA__ nests listing info in various structures.
-    # Try to navigate common paths.
-    listing = data
+    """Parse listing data from Domain's __NEXT_DATA__ JSON."""
     props = data.get("props", {})
     page_props = props.get("pageProps", {})
+    cp = page_props.get("componentProps", {})
 
-    # The listing data may be under pageProps directly or nested further
-    if "listingDetails" in page_props:
-        listing = page_props["listingDetails"]
-    elif "listing" in page_props:
-        listing = page_props["listing"]
-    elif page_props:
-        listing = page_props
+    # Single listing pages put data directly in componentProps
+    if cp.get("listingId"):
+        listing_summary = cp.get("listingSummary", {})
+        price_guide = cp.get("priceGuide", {})
+        inspection = cp.get("inspection", {})
+        gallery = cp.get("gallery", {})
+        agents = price_guide.get("agents", cp.get("agents", []))
 
-    # Extract fields with defensive access
+        images = gallery.get("slides", gallery.get("images", [])) if isinstance(gallery, dict) else []
+
+        inspection_times = []
+        if isinstance(inspection, dict):
+            for t in inspection.get("inspectionTimes", []):
+                inspection_times.append({
+                    "opening": t.get("openingDateTime"),
+                    "closing": t.get("closingDateTime"),
+                })
+
+        return ListingSnapshot(
+            url=url,
+            source="domain",
+            status=listing_summary.get("status", ""),
+            price=cp.get("headline", listing_summary.get("title", "")),
+            bedrooms=listing_summary.get("beds"),
+            bathrooms=listing_summary.get("baths"),
+            parking=listing_summary.get("parking"),
+            description=(cp.get("description", "") or "")[:500],
+            agent_name=agents[0].get("name", "") if agents else "",
+            agency_name=cp.get("agencyName", ""),
+            auction_date=None,
+            photo_count=len(images),
+            open_home_times=inspection_times,
+            raw_data=data,
+        )
+
+    # Fallback: try old-style listingDetails structure
+    listing = page_props.get("listingDetails", page_props.get("listing", page_props))
     prop_details = listing.get("propertyDetails", {}) or {}
     price_details = listing.get("priceDetails", {}) or {}
     advertiser = listing.get("advertiserIdentifiers", {}) or listing.get("advertiser", {}) or {}
     auction = listing.get("auctionSchedule", {}) or listing.get("auctionDetails", {}) or {}
     media = listing.get("media", []) or listing.get("photos", []) or []
 
-    # Handle both list and dict media formats
     if isinstance(media, list):
         photo_count = len(media)
     elif isinstance(media, dict):
@@ -56,8 +82,6 @@ def parse_domain_page_data(data: dict, url: str) -> ListingSnapshot:
 
 
 def _extract_next_data(html: str) -> dict | None:
-    """Extract __NEXT_DATA__ JSON from a Domain.com.au page."""
-    import re
     match = re.search(
         r'<script id="__NEXT_DATA__"[^>]*>(\{.+?\})</script>',
         html,
@@ -71,39 +95,17 @@ def _extract_next_data(html: str) -> dict | None:
     return None
 
 
-async def scrape_domain(url: str, browser=None) -> ListingSnapshot:
-    """Scrape a domain.com.au listing page using Playwright."""
-    should_close = browser is None
-
+async def scrape_domain(url: str) -> ListingSnapshot:
+    """Scrape a domain.com.au listing page using curl_cffi."""
     try:
-        if browser is None:
-            pw = await async_playwright().__aenter__()
-            browser = await pw.chromium.launch(headless=True)
-
-        context = await browser.new_context(
-            locale="en-AU",
-            timezone_id="Australia/Sydney",
-        )
-        page = await context.new_page()
-
-        try:
-            from playwright_stealth import Stealth
-            await Stealth().apply_stealth_async(page)
-        except Exception:
-            pass
-
-        response = await page.goto(url, wait_until="networkidle", timeout=30000)
-        if response and response.status >= 400:
-            await context.close()
+        resp = cffi_requests.get(url, impersonate="chrome", timeout=30)
+        if resp.status_code >= 400:
             return ListingSnapshot(
                 url=url, source="domain",
-                fetch_error=f"HTTP {response.status}",
+                fetch_error=f"HTTP {resp.status_code}",
             )
 
-        html = await page.content()
-        await context.close()
-
-        data = _extract_next_data(html)
+        data = _extract_next_data(resp.text)
         if data is None:
             return ListingSnapshot(
                 url=url, source="domain",
@@ -115,7 +117,3 @@ async def scrape_domain(url: str, browser=None) -> ListingSnapshot:
     except Exception as e:
         logger.error(f"Failed to scrape {url}: {e}")
         return ListingSnapshot(url=url, source="domain", fetch_error=str(e))
-
-    finally:
-        if should_close and browser:
-            await browser.close()

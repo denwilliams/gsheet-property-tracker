@@ -1,33 +1,37 @@
+import asyncio
 import json
 import re
 import logging
-from playwright.async_api import async_playwright
+import nodriver
 from ..models import ListingSnapshot
 
 logger = logging.getLogger(__name__)
 
 
 def parse_rea_page_data(data: dict, url: str) -> ListingSnapshot:
-    general = data.get("generalFeatures", {})
-    price_info = data.get("price", {})
-    listers = data.get("listers", [])
-    company = data.get("listingCompany", {})
-    auction = data.get("auctionDetails")
-    media = data.get("media", {})
+    # Data lives under details.listing in the ArgonautExchange structure
+    details = data.get("details", {})
+    listing = details.get("listing", data)
+
+    general = listing.get("generalFeatures", {})
+    price_info = listing.get("price", {})
+    listers = listing.get("listers", [])
+    company = listing.get("listingCompany", {})
+    media = listing.get("media", {})
     images = media.get("images", []) if isinstance(media, dict) else []
 
     return ListingSnapshot(
         url=url,
         source="rea",
-        status=data.get("status", ""),
+        status=listing.get("status", ""),
         price=price_info.get("display", "") if isinstance(price_info, dict) else "",
         bedrooms=general.get("bedrooms", {}).get("value") if isinstance(general.get("bedrooms"), dict) else None,
         bathrooms=general.get("bathrooms", {}).get("value") if isinstance(general.get("bathrooms"), dict) else None,
         parking=general.get("parkingSpaces", {}).get("value") if isinstance(general.get("parkingSpaces"), dict) else None,
-        description=(data.get("description", "") or "")[:500],
+        description=(listing.get("description", "") or "")[:500],
         agent_name=listers[0].get("name", "") if listers else "",
         agency_name=company.get("name", "") if isinstance(company, dict) else "",
-        auction_date=auction.get("dateTime") if isinstance(auction, dict) else None,
+        auction_date=None,
         photo_count=len(images),
         open_home_times=[],
         raw_data=data,
@@ -59,38 +63,31 @@ def _extract_listing_data(html: str) -> dict | None:
 
 
 async def scrape_rea(url: str, browser=None) -> ListingSnapshot:
+    """Scrape a realestate.com.au listing page using nodriver."""
     should_close = browser is None
 
     try:
         if browser is None:
-            pw = await async_playwright().__aenter__()
-            browser = await pw.chromium.launch(headless=True)
+            browser = await nodriver.start(headless=True)
 
-        context = await browser.new_context(
-            locale="en-AU",
-            timezone_id="Australia/Sydney",
-        )
-        page = await context.new_page()
+        page = await browser.get(url)
 
-        try:
-            from playwright_stealth import Stealth
-            await Stealth().apply_stealth_async(page)
-        except Exception:
-            logger.warning("playwright-stealth not available, proceeding without stealth")
-
-        response = await page.goto(url, wait_until="networkidle", timeout=30000)
-        if response and response.status >= 400:
-            await context.close()
-            return ListingSnapshot(
-                url=url, source="rea",
-                fetch_error=f"HTTP {response.status}",
-            )
-
-        html = await page.content()
-        await context.close()
+        # Wait for Kasada challenge to resolve and page to load
+        for _ in range(10):
+            await asyncio.sleep(2)
+            html = await page.get_content()
+            if "ArgonautExchange" in html or "__NEXT_DATA__" in html:
+                break
+        else:
+            html = await page.get_content()
 
         data = _extract_listing_data(html)
         if data is None:
+            if "KPSDK" in html:
+                return ListingSnapshot(
+                    url=url, source="rea",
+                    fetch_error="Blocked by bot protection (Kasada)",
+                )
             return ListingSnapshot(
                 url=url, source="rea",
                 fetch_error="Could not extract listing data from page",
@@ -104,4 +101,4 @@ async def scrape_rea(url: str, browser=None) -> ListingSnapshot:
 
     finally:
         if should_close and browser:
-            await browser.close()
+            browser.stop()

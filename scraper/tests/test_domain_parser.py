@@ -1,7 +1,44 @@
 from scraper.scrapers.domain_api import parse_domain_page_data
 
 
-MOCK_NEXT_DATA = {
+# New-style Domain data: componentProps with listingId
+MOCK_COMPONENT_PROPS_DATA = {
+    "props": {
+        "pageProps": {
+            "componentProps": {
+                "listingId": "2020091729",
+                "headline": "Contact Agent",
+                "description": "A stunning family home in a prime location.",
+                "agencyName": "Ray White",
+                "listingSummary": {
+                    "status": "live",
+                    "beds": 3,
+                    "baths": 2,
+                    "parking": 1,
+                    "title": "Contact Agent",
+                },
+                "priceGuide": {
+                    "agents": [{"name": "John Smith"}],
+                },
+                "gallery": {
+                    "images": [{"url": "img1.jpg"}, {"url": "img2.jpg"}],
+                },
+                "inspection": {
+                    "inspectionTimes": [
+                        {
+                            "openingDateTime": "2026-03-01T11:30:00",
+                            "closingDateTime": "2026-03-01T12:15:00",
+                        }
+                    ],
+                },
+            }
+        }
+    }
+}
+
+
+# Old-style Domain data: listingDetails
+MOCK_LISTING_DETAILS_DATA = {
     "props": {
         "pageProps": {
             "listingDetails": {
@@ -32,9 +69,26 @@ MOCK_NEXT_DATA = {
 }
 
 
-def test_parse_basic_fields():
+def test_parse_component_props():
     snapshot = parse_domain_page_data(
-        MOCK_NEXT_DATA,
+        MOCK_COMPONENT_PROPS_DATA,
+        "https://www.domain.com.au/rouse-hill-nsw-2155-2020091729",
+    )
+    assert snapshot.source == "domain"
+    assert snapshot.price == "Contact Agent"
+    assert snapshot.bedrooms == 3
+    assert snapshot.bathrooms == 2
+    assert snapshot.parking == 1
+    assert snapshot.agent_name == "John Smith"
+    assert snapshot.agency_name == "Ray White"
+    assert snapshot.photo_count == 2
+    assert len(snapshot.open_home_times) == 1
+    assert snapshot.status == "live"
+
+
+def test_parse_listing_details_fallback():
+    snapshot = parse_domain_page_data(
+        MOCK_LISTING_DETAILS_DATA,
         "https://www.domain.com.au/5-smith-st-richmond-vic-3121-12345678",
     )
     assert snapshot.source == "domain"
@@ -67,21 +121,3 @@ def test_parse_description_truncated():
     }
     snapshot = parse_domain_page_data(data, "https://example.com")
     assert len(snapshot.description) == 500
-
-
-def test_parse_flat_page_props():
-    """Test fallback when listing data is directly in pageProps."""
-    data = {
-        "props": {
-            "pageProps": {
-                "status": "Active",
-                "bedrooms": 4,
-                "bathrooms": 3,
-                "price": "$900,000",
-                "description": "Nice place",
-            }
-        }
-    }
-    snapshot = parse_domain_page_data(data, "https://example.com")
-    assert snapshot.bedrooms == 4
-    assert snapshot.price == "$900,000"

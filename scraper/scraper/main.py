@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+import nodriver
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from .config import settings
 from . import db
@@ -29,13 +30,17 @@ async def scrape_all():
     total_changes = 0
     errors = 0
 
-    browser = None
-    try:
-        from playwright.async_api import async_playwright
-        pw = await async_playwright().__aenter__()
-        browser = await pw.chromium.launch(headless=True)
-    except Exception as e:
-        logger.warning(f"Failed to launch browser for scraping: {e}")
+    # Launch a shared nodriver browser for REA pages
+    rea_browser = None
+    rea_urls = [
+        u for prop in properties for u in [prop.url, prop.url2]
+        if u and "realestate.com.au" in u
+    ]
+    if rea_urls:
+        try:
+            rea_browser = await nodriver.start(headless=True)
+        except Exception as e:
+            logger.warning(f"Failed to launch nodriver browser: {e}")
 
     for prop in properties:
         for url in [prop.url, prop.url2]:
@@ -44,9 +49,9 @@ async def scrape_all():
 
             try:
                 if "domain.com.au" in url:
-                    snapshot = await scrape_domain(url, browser=browser)
+                    snapshot = await scrape_domain(url)
                 elif "realestate.com.au" in url:
-                    snapshot = await scrape_rea(url, browser=browser)
+                    snapshot = await scrape_rea(url, browser=rea_browser)
                 else:
                     logger.debug(f"Skipping unknown URL: {url}")
                     continue
@@ -79,8 +84,8 @@ async def scrape_all():
             delay = random.uniform(settings.rea_delay_min, settings.rea_delay_max)
             await asyncio.sleep(delay)
 
-    if browser:
-        await browser.close()
+    if rea_browser:
+        rea_browser.stop()
 
     logger.info(
         f"Scrape cycle complete: {len(properties)} properties, "
