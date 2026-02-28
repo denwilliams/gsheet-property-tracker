@@ -27,6 +27,88 @@
         })
     );
 
+    /** Parse "$1.155" (millions shorthand) or "$1,155,000" or "$780" to a number. */
+    function parsePrice(s: string): number | null {
+        const m = s.match(/\$\s*([\d,]+(?:\.\d+)?)/);
+        if (!m) return null;
+        const raw = m[1].replace(/,/g, '');
+        const n = parseFloat(raw);
+        if (isNaN(n)) return null;
+        // Shorthand: "$1.155" means $1,155,000 — numbers under 100 are in millions
+        return n < 100 ? n * 1_000_000 : n;
+    }
+
+    /** Parse a range like "$1.1 - $1.2" into [low, high], or a single price into [p, p]. */
+    function parseRange(s: string): [number, number] | null {
+        const parts = s.split(/\s*-\s*/);
+        if (parts.length === 2) {
+            const lo = parsePrice(parts[0]);
+            const hi = parsePrice(parts[1]);
+            if (lo != null && hi != null) return [lo, hi];
+        }
+        const single = parsePrice(s);
+        if (single != null) return [single, single];
+        return null;
+    }
+
+    type SoldColour = 'green' | 'amber' | 'red' | null;
+
+    /**
+     * Compare sold price against advertised range.
+     * - Below or bottom quarter: green
+     * - Middle half: amber
+     * - Top quarter or above range: red
+     */
+    function soldColour(prop: Property): SoldColour {
+        if (!prop.sold_price || !prop.advertised_price) return null;
+        const sold = parsePrice(prop.sold_price);
+        const range = parseRange(prop.advertised_price);
+        if (sold == null || range == null) return null;
+        const [lo, hi] = range;
+        if (lo === hi) return null; // single asking price, no range to compare
+        if (sold > hi) return 'red';
+        const position = (sold - lo) / (hi - lo); // 0 = bottom, 1 = top
+        if (position <= 0.33) return 'green';
+        if (position <= 0.66) return 'amber';
+        return 'red';
+    }
+
+    function isAboveRange(prop: Property): boolean {
+        if (!prop.sold_price || !prop.advertised_price) return false;
+        const sold = parsePrice(prop.sold_price);
+        const range = parseRange(prop.advertised_price);
+        if (sold == null || range == null) return false;
+        return range[0] !== range[1] && sold > range[1];
+    }
+
+    const soldColourClasses: Record<string, string> = {
+        green: 'text-green-700',
+        amber: 'text-amber-600',
+        red: 'text-red-600',
+    };
+
+    const soldBorderClasses: Record<string, string> = {
+        green: 'border-l-4 border-l-green-400',
+        amber: 'border-l-4 border-l-amber-400',
+        red: 'border-l-4 border-l-red-400',
+    };
+
+    function soldTextClass(prop: Property): string {
+        const c = soldColour(prop);
+        if (c === 'red') return 'text-red-600';
+        if (c === 'amber') return 'text-amber-600';
+        if (c === 'green') return 'text-green-700';
+        if (prop.sold_price) return 'text-green-700';
+        return '';
+    }
+
+    function cardBorder(prop: Property): string {
+        const sc = soldColour(prop);
+        if (sc) return soldBorderClasses[sc];
+        if (prop.has_recent_changes) return 'border-l-4 border-l-amber-400';
+        return '';
+    }
+
     function timeAgo(dateStr: string | null): string {
         if (!dateStr) return 'never';
         const diff = Date.now() - new Date(dateStr).getTime();
@@ -92,22 +174,41 @@
                 {#each filtered as prop (prop.id)}
                     <a
                         href="/property/{prop.id}"
-                        class="bg-white rounded-lg shadow-sm border p-4 hover:shadow-md transition-shadow
-                            {prop.has_recent_changes ? 'border-l-4 border-l-amber-400' : ''}"
+                        class="bg-white rounded-lg shadow-sm border overflow-hidden hover:shadow-md transition-shadow
+                            {cardBorder(prop)}"
                     >
-                        <h3 class="font-semibold text-sm leading-tight mb-2">{prop.address}</h3>
-                        <div class="text-xs text-gray-500 space-y-1">
-                            {#if prop.details}<p>{prop.details}</p>{/if}
-                            {#if prop.area}<p>{prop.area}</p>{/if}
-                            {#if prop.advertised_price}
-                                <p class="text-sm font-medium text-gray-900">{prop.advertised_price}</p>
-                            {/if}
-                            {#if prop.sold_price}
-                                <p class="text-green-700 font-medium">Sold: {prop.sold_price}</p>
-                            {/if}
-                            {#if prop.has_recent_changes}
-                                <p class="text-amber-600 text-xs">Updated {timeAgo(prop.last_change_at)}</p>
-                            {/if}
+                        {#if prop.hero_image}
+                            <img
+                                src="/images/{prop.id}/{prop.hero_image}"
+                                alt={prop.address}
+                                class="w-full h-40 object-cover"
+                                loading="lazy"
+                            />
+                        {:else}
+                            <div class="w-full h-24 bg-gray-100 flex items-center justify-center">
+                                <span class="text-gray-300 text-3xl">&#9633;</span>
+                            </div>
+                        {/if}
+                        <div class="p-4">
+                            <h3 class="font-semibold text-sm leading-tight mb-2">{prop.address}</h3>
+                            <div class="text-xs text-gray-500 space-y-1">
+                                {#if prop.details}<p>{prop.details}</p>{/if}
+                                {#if prop.area}<p>{prop.area}</p>{/if}
+                                {#if prop.advertised_price}
+                                    <p class="text-sm font-medium text-gray-900">{prop.advertised_price}</p>
+                                {/if}
+                                {#if prop.sold_price}
+                                    <p class="font-medium {soldTextClass(prop)}">
+                                        Sold: {prop.sold_price}
+                                        {#if isAboveRange(prop)}
+                                            <span class="text-xs font-normal">(above range)</span>
+                                        {/if}
+                                    </p>
+                                {/if}
+                                {#if prop.has_recent_changes}
+                                    <p class="text-amber-600 text-xs">Updated {timeAgo(prop.last_change_at)}</p>
+                                {/if}
+                            </div>
                         </div>
                     </a>
                 {/each}
@@ -129,14 +230,19 @@
                     </thead>
                     <tbody>
                         {#each filtered as prop (prop.id)}
-                            <tr class="border-b hover:bg-gray-50 {prop.has_recent_changes ? 'bg-amber-50' : ''}">
+                            <tr class="border-b hover:bg-gray-50 {soldColour(prop) === 'red' ? 'bg-red-50' : soldColour(prop) === 'green' ? 'bg-green-50' : prop.has_recent_changes ? 'bg-amber-50' : ''}">
                                 <td class="px-4 py-2">
                                     <a href="/property/{prop.id}" class="text-blue-600 hover:underline">{prop.address}</a>
                                 </td>
                                 <td class="px-4 py-2 text-gray-600">{prop.details || '-'}</td>
                                 <td class="px-4 py-2 text-gray-600">{prop.area || '-'}</td>
                                 <td class="px-4 py-2">{prop.advertised_price || '-'}</td>
-                                <td class="px-4 py-2 text-green-700">{prop.sold_price || '-'}</td>
+                                <td class="px-4 py-2 {soldTextClass(prop)}">
+                                    {prop.sold_price || '-'}
+                                    {#if isAboveRange(prop)}
+                                        <span class="text-xs">(above)</span>
+                                    {/if}
+                                </td>
                                 <td class="px-4 py-2 text-gray-400 text-xs">{timeAgo(prop.last_checked)}</td>
                             </tr>
                         {/each}

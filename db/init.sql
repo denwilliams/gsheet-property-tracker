@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS listing_snapshots (
     agency_name     TEXT,
     auction_date    TIMESTAMPTZ,
     photo_count     INT,
+    sold_date       TEXT,
     open_home_times JSONB DEFAULT '[]',
     raw_data        JSONB,
     fetch_error     TEXT,
@@ -56,3 +57,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     expires_at      TIMESTAMPTZ NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS property_images (
+    id              SERIAL PRIMARY KEY,
+    property_id     TEXT NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+    url             TEXT NOT NULL,
+    filename        TEXT NOT NULL,
+    display_order   INT NOT NULL DEFAULT 0,
+    source          TEXT NOT NULL,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(property_id, filename)
+);
+CREATE INDEX IF NOT EXISTS idx_property_images_pid ON property_images(property_id, display_order);

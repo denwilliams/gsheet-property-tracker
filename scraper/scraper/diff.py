@@ -3,7 +3,7 @@ from .models import ListingSnapshot, Change
 TRACKED_FIELDS = [
     "status", "price", "bedrooms", "bathrooms", "parking",
     "description", "agent_name", "agency_name", "auction_date",
-    "photo_count",
+    "photo_count", "sold_date",
 ]
 
 

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import random
+from pathlib import Path
 import nodriver
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from .config import settings
@@ -10,6 +11,7 @@ from .scrapers.domain_api import scrape_domain
 from .scrapers.rea import scrape_rea
 from .diff import diff_snapshots
 from .notify import notify_pushover
+from .images import download_and_cache_images
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,6 +19,10 @@ logging.basicConfig(
 )
 logging.getLogger("nodriver").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+# Resolve image directory: env var > default relative to project root
+_project_root = Path(__file__).resolve().parent.parent.parent
+IMAGE_DIR = Path(settings.image_dir) if settings.image_dir else _project_root / "data" / "images"
 
 
 async def _process_url(prop, url, snapshot):
@@ -35,6 +41,13 @@ async def _process_url(prop, url, snapshot):
 
     if not snapshot.fetch_error:
         await db.upsert_snapshot(prop.id, snapshot)
+        if snapshot.raw_data:
+            try:
+                await download_and_cache_images(
+                    prop.id, snapshot.raw_data, snapshot.source, IMAGE_DIR
+                )
+            except Exception as e:
+                logger.warning(f"Image caching failed for {prop.address}: {e}")
 
     await db.update_last_checked(prop.id)
     return len(changes)

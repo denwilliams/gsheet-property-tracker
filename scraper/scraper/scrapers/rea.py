@@ -19,11 +19,24 @@ def parse_rea_page_data(data: dict, url: str) -> ListingSnapshot:
     company = listing.get("listingCompany", {})
     media = listing.get("media", {})
     images = media.get("images", []) if isinstance(media, dict) else []
+    date_sold = listing.get("dateSold", {})
+
+    # Derive status from price type if not explicitly set
+    status = listing.get("status", "")
+    if not status and isinstance(price_info, dict):
+        price_type = price_info.get("__typename", "")
+        if price_type == "SoldPrice":
+            status = "sold"
+
+    # Extract sold date from dateSold.display
+    sold_date = ""
+    if isinstance(date_sold, dict):
+        sold_date = date_sold.get("display", "")
 
     return ListingSnapshot(
         url=url,
         source="rea",
-        status=listing.get("status", ""),
+        status=status,
         price=price_info.get("display", "") if isinstance(price_info, dict) else "",
         bedrooms=general.get("bedrooms", {}).get("value") if isinstance(general.get("bedrooms"), dict) else None,
         bathrooms=general.get("bathrooms", {}).get("value") if isinstance(general.get("bathrooms"), dict) else None,
@@ -35,6 +48,7 @@ def parse_rea_page_data(data: dict, url: str) -> ListingSnapshot:
         photo_count=len(images),
         open_home_times=[],
         raw_data=data,
+        sold_date=sold_date,
     )
 
 

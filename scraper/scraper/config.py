@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     scrape_interval_hours: int = 4
     rea_delay_min: int = 5
     rea_delay_max: int = 15
+    image_dir: str = ""
 
     @property
     def google_credentials(self) -> dict:

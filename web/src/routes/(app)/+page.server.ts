@@ -10,7 +10,11 @@ export const load: PageServerLoad = async () => {
                 AND c.detected_at > NOW() - INTERVAL '48 hours'
             ) as has_recent_changes,
             (SELECT MAX(c.detected_at) FROM changes c WHERE c.property_id = p.id)
-                as last_change_at
+                as last_change_at,
+            (SELECT pi.filename FROM property_images pi
+                WHERE pi.property_id = p.id
+                ORDER BY pi.display_order LIMIT 1)
+                as hero_image
         FROM properties p
         ORDER BY p.updated_at DESC
     `;

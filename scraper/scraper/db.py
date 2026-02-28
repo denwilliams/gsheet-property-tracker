@@ -80,6 +80,7 @@ async def get_snapshot(property_id: str, url: str) -> ListingSnapshot | None:
         photo_count=row["photo_count"] or 0,
         open_home_times=row["open_home_times"] or [],
         raw_data=row["raw_data"], fetch_error=row["fetch_error"],
+        sold_date=row["sold_date"] or "",
     )
 
 
@@ -89,21 +90,22 @@ async def upsert_snapshot(property_id: str, snapshot: ListingSnapshot):
         """
         INSERT INTO listing_snapshots (property_id, url, source, status, price,
             bedrooms, bathrooms, parking, description, agent_name, agency_name,
-            auction_date, photo_count, open_home_times, raw_data, fetch_error, fetched_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW())
+            auction_date, photo_count, sold_date, open_home_times, raw_data, fetch_error, fetched_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,NOW())
         ON CONFLICT (property_id, url) DO UPDATE SET
             source=EXCLUDED.source, status=EXCLUDED.status, price=EXCLUDED.price,
             bedrooms=EXCLUDED.bedrooms, bathrooms=EXCLUDED.bathrooms,
             parking=EXCLUDED.parking, description=EXCLUDED.description,
             agent_name=EXCLUDED.agent_name, agency_name=EXCLUDED.agency_name,
             auction_date=EXCLUDED.auction_date, photo_count=EXCLUDED.photo_count,
+            sold_date=EXCLUDED.sold_date,
             open_home_times=EXCLUDED.open_home_times, raw_data=EXCLUDED.raw_data,
             fetch_error=EXCLUDED.fetch_error, fetched_at=NOW()
         """,
         property_id, snapshot.url, snapshot.source, snapshot.status, snapshot.price,
         snapshot.bedrooms, snapshot.bathrooms, snapshot.parking, snapshot.description,
         snapshot.agent_name, snapshot.agency_name, snapshot.auction_date,
-        snapshot.photo_count, json.dumps(snapshot.open_home_times),
+        snapshot.photo_count, snapshot.sold_date, json.dumps(snapshot.open_home_times),
         json.dumps(snapshot.raw_data) if snapshot.raw_data else None,
         snapshot.fetch_error,
     )

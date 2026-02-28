@@ -1,8 +1,12 @@
 <script lang="ts">
     import type { PageData } from './$types';
+    import type { PropertyImage } from '$lib/types';
 
     let { data }: { data: PageData } = $props();
     const { property, changes, snapshots } = data;
+    const images: PropertyImage[] = data.images as PropertyImage[];
+
+    let selectedIndex = $state(0);
 
     function formatDate(dateStr: string): string {
         return new Date(dateStr).toLocaleDateString('en-AU', {
@@ -29,6 +33,39 @@
     </header>
 
     <main class="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        {#if images.length > 0}
+            <div class="bg-white rounded-lg shadow-sm border overflow-hidden">
+                <div class="relative">
+                    <img
+                        src="/images/{property.id}/{images[selectedIndex].filename}"
+                        alt="{property.address} - Photo {selectedIndex + 1}"
+                        class="w-full h-80 object-cover"
+                    />
+                    <span class="absolute bottom-3 right-3 bg-black/60 text-white text-xs px-2 py-1 rounded">
+                        {selectedIndex + 1} / {images.length}
+                    </span>
+                </div>
+                {#if images.length > 1}
+                    <div class="flex gap-1 p-2 overflow-x-auto">
+                        {#each images as img, i}
+                            <button
+                                onclick={() => selectedIndex = i}
+                                class="flex-shrink-0 rounded overflow-hidden border-2 transition-colors
+                                    {i === selectedIndex ? 'border-blue-500' : 'border-transparent hover:border-gray-300'}"
+                            >
+                                <img
+                                    src="/images/{property.id}/{img.filename}"
+                                    alt="Thumbnail {i + 1}"
+                                    class="w-16 h-12 object-cover"
+                                    loading="lazy"
+                                />
+                            </button>
+                        {/each}
+                    </div>
+                {/if}
+            </div>
+        {/if}
+
         <div class="bg-white rounded-lg shadow-sm border p-6">
             <div class="grid grid-cols-2 gap-4 text-sm">
                 {#if property.details}

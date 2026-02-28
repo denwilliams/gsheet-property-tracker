@@ -23,6 +23,13 @@ export const load: PageServerLoad = async ({ params }) => {
         WHERE property_id = ${params.id}
     `;
 
+    const images = await sql`
+        SELECT id, property_id, filename, display_order, source
+        FROM property_images
+        WHERE property_id = ${params.id}
+        ORDER BY display_order
+    `;
+
     return {
         property: {
             ...property,
@@ -37,5 +44,6 @@ export const load: PageServerLoad = async ({ params }) => {
             fetched_at: s.fetched_at.toISOString(),
             auction_date: s.auction_date?.toISOString() ?? null,
         })),
+        images,
     };
 };

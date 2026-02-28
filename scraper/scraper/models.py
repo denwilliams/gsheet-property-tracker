@@ -34,6 +34,7 @@ class ListingSnapshot:
     open_home_times: list[str] = field(default_factory=list)
     raw_data: dict | None = None
     fetch_error: str | None = None
+    sold_date: str = ""
 
 
 @dataclass

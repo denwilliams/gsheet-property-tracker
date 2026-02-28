@@ -12,6 +12,7 @@ export interface Property {
     last_checked: string | null;
     has_recent_changes: boolean;
     last_change_at: string | null;
+    hero_image: string | null;
 }
 
 export interface Change {
@@ -22,6 +23,14 @@ export interface Change {
     field: string;
     old_value: string;
     new_value: string;
+}
+
+export interface PropertyImage {
+    id: number;
+    property_id: string;
+    filename: string;
+    display_order: number;
+    source: string;
 }
 
 export interface ListingSnapshot {
