@@ -105,9 +105,46 @@
     function cardBorder(prop: Property): string {
         const sc = soldColour(prop);
         if (sc) return soldBorderClasses[sc];
-        if (prop.has_recent_changes) return 'border-l-4 border-l-amber-400';
         return '';
     }
+
+    /** Parse "6 Feb 2026", "19 Dec", "3 Feb" to a Date. Infers year if missing. */
+    function parseSoldDate(s: string): Date | null {
+        if (!s) return null;
+        // If no 4-digit year, try current year first, then previous
+        if (!/\d{4}/.test(s)) {
+            const now = new Date();
+            let d = new Date(`${s} ${now.getFullYear()}`);
+            if (isNaN(d.getTime())) return null;
+            if (d.getTime() > now.getTime()) {
+                d = new Date(`${s} ${now.getFullYear() - 1}`);
+            }
+            return d;
+        }
+        const d = new Date(s);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    /** Format a sold_date string, adding inferred year if missing. */
+    function displaySoldDate(s: string): string {
+        if (!s) return '';
+        // Already has a 4-digit year
+        if (/\d{4}/.test(s)) return s;
+        const d = parseSoldDate(s);
+        if (!d) return s;
+        return `${s} ${d.getFullYear()}`;
+    }
+
+    let sorted = $derived(
+        [...filtered].sort((a, b) => {
+            const da = parseSoldDate(a.sold_date);
+            const db = parseSoldDate(b.sold_date);
+            if (da && db) return db.getTime() - da.getTime();
+            if (da) return -1;
+            if (db) return 1;
+            return 0;
+        })
+    );
 
     function timeAgo(dateStr: string | null): string {
         if (!dateStr) return 'never';
@@ -171,7 +208,7 @@
 
         {#if view === 'cards'}
             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {#each filtered as prop (prop.id)}
+                {#each sorted as prop (prop.id)}
                     <a
                         href="/property/{prop.id}"
                         class="bg-white rounded-lg shadow-sm border overflow-hidden hover:shadow-md transition-shadow
@@ -204,6 +241,9 @@
                                             <span class="text-xs font-normal">(above range)</span>
                                         {/if}
                                     </p>
+                                    {#if prop.sold_date}
+                                        <p class="text-gray-400">{displaySoldDate(prop.sold_date)}</p>
+                                    {/if}
                                 {/if}
                                 {#if prop.has_recent_changes}
                                     <p class="text-amber-600 text-xs">Updated {timeAgo(prop.last_change_at)}</p>
@@ -225,12 +265,13 @@
                             <th class="text-left px-4 py-2 font-medium">Area</th>
                             <th class="text-left px-4 py-2 font-medium">Price</th>
                             <th class="text-left px-4 py-2 font-medium">Sold</th>
+                            <th class="text-left px-4 py-2 font-medium">Sold Date</th>
                             <th class="text-left px-4 py-2 font-medium">Checked</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {#each filtered as prop (prop.id)}
-                            <tr class="border-b hover:bg-gray-50 {soldColour(prop) === 'red' ? 'bg-red-50' : soldColour(prop) === 'green' ? 'bg-green-50' : prop.has_recent_changes ? 'bg-amber-50' : ''}">
+                        {#each sorted as prop (prop.id)}
+                            <tr class="border-b hover:bg-gray-50 {soldColour(prop) === 'red' ? 'bg-red-50' : soldColour(prop) === 'green' ? 'bg-green-50' : soldColour(prop) === 'amber' ? 'bg-amber-50' : ''}">
                                 <td class="px-4 py-2">
                                     <a href="/property/{prop.id}" class="text-blue-600 hover:underline">{prop.address}</a>
                                 </td>
@@ -243,6 +284,7 @@
                                         <span class="text-xs">(above)</span>
                                     {/if}
                                 </td>
+                                <td class="px-4 py-2 text-gray-500 text-xs">{displaySoldDate(prop.sold_date) || '-'}</td>
                                 <td class="px-4 py-2 text-gray-400 text-xs">{timeAgo(prop.last_checked)}</td>
                             </tr>
                         {/each}
