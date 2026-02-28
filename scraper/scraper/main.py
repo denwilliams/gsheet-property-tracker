@@ -88,7 +88,7 @@ async def scrape_all():
     )
 
 
-def main():
+async def async_main():
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         scrape_all,
@@ -102,15 +102,24 @@ def main():
         f"Scraper started. Running every {settings.scrape_interval_hours} hours."
     )
 
-    loop = asyncio.new_event_loop()
-    loop.run_until_complete(scrape_all())
+    await scrape_all()
 
     try:
-        loop.run_forever()
+        while True:
+            await asyncio.sleep(3600)
     except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
         logger.info("Shutting down...")
         scheduler.shutdown()
-        loop.run_until_complete(db.close_pool())
+        await db.close_pool()
+
+
+def main():
+    try:
+        asyncio.run(async_main())
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":
