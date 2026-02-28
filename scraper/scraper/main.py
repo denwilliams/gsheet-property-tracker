@@ -64,50 +64,65 @@ async def scrape_all():
                 rea_jobs.append((prop, url))
 
     # --- Domain: curl_cffi, light rate limiting ---
-    logger.info(f"Scraping {len(domain_jobs)} Domain URLs")
-    for prop, url in domain_jobs:
+    domain_ok = 0
+    domain_fail = 0
+    logger.info(f"--- Domain: scraping {len(domain_jobs)} URLs ---")
+    for i, (prop, url) in enumerate(domain_jobs, 1):
         try:
             snapshot = await scrape_domain(url)
             if snapshot.fetch_error:
-                logger.warning(f"Fetch error for {url}: {snapshot.fetch_error}")
+                domain_fail += 1
                 errors += 1
+                logger.error(f"  FAIL [{i}/{len(domain_jobs)}] {prop.address} — {snapshot.fetch_error}")
             else:
+                domain_ok += 1
                 total_changes += await _process_url(prop, url, snapshot)
+                logger.info(f"  OK   [{i}/{len(domain_jobs)}] {prop.address} — {snapshot.price or 'no price'}")
         except Exception as e:
-            logger.error(f"Error processing {url}: {e}")
+            domain_fail += 1
             errors += 1
+            logger.error(f"  FAIL [{i}/{len(domain_jobs)}] {prop.address} — {e}")
         await asyncio.sleep(random.uniform(1, 3))
+    logger.info(f"--- Domain done: {domain_ok} ok, {domain_fail} failed ---")
 
     # --- REA: nodriver (real Chrome), heavier rate limiting ---
+    rea_ok = 0
+    rea_fail = 0
     if rea_jobs:
-        logger.info(f"Scraping {len(rea_jobs)} REA URLs")
+        logger.info(f"--- REA: scraping {len(rea_jobs)} URLs ---")
         rea_browser = None
         try:
-            rea_browser = await nodriver.start(headless=True)
+            rea_browser = await nodriver.start(headless=False)
         except Exception as e:
-            logger.warning(f"Failed to launch nodriver browser: {e}")
+            logger.error(f"Failed to launch browser for REA: {e}")
 
-        for prop, url in rea_jobs:
+        for i, (prop, url) in enumerate(rea_jobs, 1):
             try:
                 snapshot = await scrape_rea(url, browser=rea_browser)
                 if snapshot.fetch_error:
-                    logger.warning(f"Fetch error for {url}: {snapshot.fetch_error}")
+                    rea_fail += 1
                     errors += 1
+                    logger.error(f"  FAIL [{i}/{len(rea_jobs)}] {prop.address} — {snapshot.fetch_error}")
                 else:
+                    rea_ok += 1
                     total_changes += await _process_url(prop, url, snapshot)
+                    logger.info(f"  OK   [{i}/{len(rea_jobs)}] {prop.address} — {snapshot.price or 'no price'}")
             except Exception as e:
-                logger.error(f"Error processing {url}: {e}")
+                rea_fail += 1
                 errors += 1
+                logger.error(f"  FAIL [{i}/{len(rea_jobs)}] {prop.address} — {e}")
             delay = random.uniform(settings.rea_delay_min, settings.rea_delay_max)
-            logger.debug(f"Waiting {delay:.0f}s before next REA request")
+            logger.info(f"  ... waiting {delay:.0f}s before next REA request")
             await asyncio.sleep(delay)
 
         if rea_browser:
             rea_browser.stop()
+        logger.info(f"--- REA done: {rea_ok} ok, {rea_fail} failed ---")
 
     logger.info(
-        f"Scrape cycle complete: {len(properties)} properties, "
-        f"{total_changes} changes detected, {errors} errors"
+        f"=== Scrape cycle complete: {len(properties)} properties, "
+        f"{domain_ok + rea_ok} scraped, {errors} errors, "
+        f"{total_changes} changes detected ==="
     )
 
 

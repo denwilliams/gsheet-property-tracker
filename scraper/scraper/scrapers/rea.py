@@ -68,26 +68,58 @@ async def scrape_rea(url: str, browser=None) -> ListingSnapshot:
 
     try:
         if browser is None:
-            browser = await nodriver.start(headless=True)
+            browser = await nodriver.start(headless=False)
 
+        logger.info(f"REA: loading {url}")
         page = await browser.get(url)
 
-        # Wait for Kasada challenge to resolve and page to load
-        for _ in range(10):
+        # Kasada serves a challenge page then redirects to the real page.
+        # Poll for up to 30s, checking the current active tab each time
+        # since Kasada may navigate to a new page.
+        html = ""
+        for i in range(15):
             await asyncio.sleep(2)
-            html = await page.get_content()
-            if "ArgonautExchange" in html or "__NEXT_DATA__" in html:
+            # Get the currently active tab — Kasada may have navigated
+            try:
+                current = browser.main_tab
+                if current:
+                    html = await current.get_content()
+                else:
+                    html = await page.get_content()
+            except Exception:
+                html = await page.get_content()
+
+            has_data = "ArgonautExchange" in html or "__NEXT_DATA__" in html
+            has_kasada = "KPSDK" in html
+            elapsed = (i + 1) * 2
+            logger.info(f"REA: [{elapsed}s] page_len={len(html)} data={has_data} kasada={has_kasada}")
+
+            if has_data:
+                logger.info(f"REA: page loaded successfully after {elapsed}s")
                 break
         else:
-            html = await page.get_content()
+            # Final attempt — try evaluating JS directly for the data
+            logger.info("REA: polling timed out, trying JS evaluation fallback")
+            try:
+                current = browser.main_tab or page
+                result = await current.evaluate(
+                    "JSON.stringify(window.ArgonautExchange || null)"
+                )
+                if result and result != "null":
+                    html = f"window.ArgonautExchange = {result};"
+                    logger.info("REA: got data via JS evaluation fallback")
+            except Exception as e:
+                logger.warning(f"REA: JS evaluation fallback failed: {e}")
 
         data = _extract_listing_data(html)
         if data is None:
-            if "KPSDK" in html:
+            if "KPSDK" in html or len(html) < 2000:
+                logger.error(f"REA: BLOCKED by Kasada for {url}")
                 return ListingSnapshot(
                     url=url, source="rea",
                     fetch_error="Blocked by bot protection (Kasada)",
                 )
+            logger.error(f"REA: could not extract data from {url} (page_len={len(html)})")
             return ListingSnapshot(
                 url=url, source="rea",
                 fetch_error="Could not extract listing data from page",
