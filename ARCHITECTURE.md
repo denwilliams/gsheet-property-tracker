@@ -65,12 +65,14 @@ Clean separation: the scraper can crash/restart without affecting the UI, and vi
 
 | Source | Method | Reliability |
 |--------|--------|-------------|
-| **domain.com.au** | Official API (`api.domain.com.au/v1/listings/{id}`) | High — free tier, 500 calls/day |
-| **realestate.com.au** | Playwright + stealth plugin (real Chromium) | Medium-High — residential IP + real browser bypasses most Kasada checks |
+| **domain.com.au** | Playwright + parse `__NEXT_DATA__` JSON | High — Next.js site, lighter bot protection than REA |
+| **realestate.com.au** | Playwright + stealth plugin + parse `ArgonautExchange` | Medium-High — residential IP + real browser bypasses most Kasada checks |
 
-**Domain.com.au**: Official free API. Extract listing ID from URL (last numeric segment), call the API. 50 listings x 6 checks/day = 300 calls, well within 500/day free limit.
+**Domain.com.au**: Playwright scraping. Domain is a Next.js app that embeds listing data in a `<script id="__NEXT_DATA__">` tag. Lighter bot protection than REA — no Kasada. The official API's listings endpoint requires a paid plan, so we scrape instead.
 
 **realestate.com.au**: Playwright with `playwright-stealth` on a residential IP. The Pi's Australian residential IP is a huge advantage — Kasada primarily blocks datacenter IPs. Random 5-15s delays between requests. Parse the `ArgonautExchange` JSON from page source.
+
+Both scrapers share a single Chromium browser instance per scrape cycle to minimize memory usage.
 
 ### 4. PostgreSQL over KV/SQLite
 
@@ -465,10 +467,6 @@ GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account",...}
 GOOGLE_SHEET_ID=1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
 GOOGLE_SHEET_RANGE=Sheet1!A:I
 
-# Domain.com.au API
-DOMAIN_CLIENT_ID=your_client_id
-DOMAIN_CLIENT_SECRET=your_client_secret
-
 # Pushover
 PUSHOVER_APP_TOKEN=your_app_token
 PUSHOVER_USER_KEY=your_user_key
@@ -604,15 +602,6 @@ sudo cloudflared service install
 4. Download the JSON key file
 5. Share your Google Sheet with the service account email address (Viewer permission)
 6. Put the JSON contents in your `.env` as `GOOGLE_SERVICE_ACCOUNT_JSON`
-
----
-
-## Domain.com.au API Setup
-
-1. Register at `developer.domain.com.au`
-2. Create an application (Innovation tier — free, 500 calls/day)
-3. Note the Client ID and Client Secret
-4. Add to `.env`
 
 ---
 

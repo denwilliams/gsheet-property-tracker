@@ -29,13 +29,13 @@ async def scrape_all():
     total_changes = 0
     errors = 0
 
-    rea_browser = None
+    browser = None
     try:
         from playwright.async_api import async_playwright
         pw = await async_playwright().__aenter__()
-        rea_browser = await pw.chromium.launch(headless=True)
+        browser = await pw.chromium.launch(headless=True)
     except Exception as e:
-        logger.warning(f"Failed to launch browser for REA scraping: {e}")
+        logger.warning(f"Failed to launch browser for scraping: {e}")
 
     for prop in properties:
         for url in [prop.url, prop.url2]:
@@ -44,9 +44,9 @@ async def scrape_all():
 
             try:
                 if "domain.com.au" in url:
-                    snapshot = await scrape_domain(url)
+                    snapshot = await scrape_domain(url, browser=browser)
                 elif "realestate.com.au" in url:
-                    snapshot = await scrape_rea(url, browser=rea_browser)
+                    snapshot = await scrape_rea(url, browser=browser)
                 else:
                     logger.debug(f"Skipping unknown URL: {url}")
                     continue
@@ -79,8 +79,8 @@ async def scrape_all():
             delay = random.uniform(settings.rea_delay_min, settings.rea_delay_max)
             await asyncio.sleep(delay)
 
-    if rea_browser:
-        await rea_browser.close()
+    if browser:
+        await browser.close()
 
     logger.info(
         f"Scrape cycle complete: {len(properties)} properties, "

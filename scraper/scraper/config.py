@@ -7,8 +7,6 @@ class Settings(BaseSettings):
     google_service_account_json: str = "{}"
     google_sheet_id: str = ""
     google_sheet_range: str = "Sheet1!A:I"
-    domain_client_id: str = ""
-    domain_client_secret: str = ""
     pushover_app_token: str = ""
     pushover_user_key: str = ""
     scrape_interval_hours: int = 4
