@@ -73,10 +73,10 @@ async def scrape_rea(url: str, browser=None) -> ListingSnapshot:
         page = await context.new_page()
 
         try:
-            from playwright_stealth import stealth_async
-            await stealth_async(page)
-        except ImportError:
-            logger.warning("playwright-stealth not installed, proceeding without stealth")
+            from playwright_stealth import Stealth
+            await Stealth().apply_stealth_async(page)
+        except Exception:
+            logger.warning("playwright-stealth not available, proceeding without stealth")
 
         response = await page.goto(url, wait_until="networkidle", timeout=30000)
         if response and response.status >= 400:

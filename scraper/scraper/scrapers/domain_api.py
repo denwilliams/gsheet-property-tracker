@@ -87,9 +87,9 @@ async def scrape_domain(url: str, browser=None) -> ListingSnapshot:
         page = await context.new_page()
 
         try:
-            from playwright_stealth import stealth_async
-            await stealth_async(page)
-        except ImportError:
+            from playwright_stealth import Stealth
+            await Stealth().apply_stealth_async(page)
+        except Exception:
             pass
 
         response = await page.goto(url, wait_until="networkidle", timeout=30000)
