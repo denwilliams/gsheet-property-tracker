@@ -1,0 +1,16 @@
+[Unit]
+Description=Property Tracker Scraper
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/gsheet-property-tracker/scraper
+ExecStart=/home/pi/.local/bin/uv run python -m scraper.main
+Restart=always
+RestartSec=30
+EnvironmentFile=/home/pi/gsheet-property-tracker/.env
+
+[Install]
+WantedBy=multi-user.target

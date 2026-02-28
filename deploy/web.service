@@ -1,0 +1,17 @@
+[Unit]
+Description=Property Tracker Web UI
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/gsheet-property-tracker/web
+ExecStart=/usr/bin/node build/index.js
+Restart=always
+RestartSec=10
+EnvironmentFile=/home/pi/gsheet-property-tracker/.env
+Environment=PORT=5713
+
+[Install]
+WantedBy=multi-user.target
