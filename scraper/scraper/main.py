@@ -6,7 +6,7 @@ import nodriver
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from .config import settings
 from . import db
-from .sheets import sync_sheet_to_db, update_sold_on_sheet
+from .sheets import sync_sheet_to_db, update_sold_on_sheet, append_property_to_sheet
 from .scrapers.domain_api import scrape_domain
 from .scrapers.rea import scrape_rea
 from .diff import diff_snapshots
@@ -23,6 +23,47 @@ logger = logging.getLogger(__name__)
 # Resolve image directory: env var > default relative to project root
 _project_root = Path(__file__).resolve().parent.parent.parent
 IMAGE_DIR = Path(settings.image_dir) if settings.image_dir else _project_root / "data" / "images"
+
+
+def _extract_address(raw_data: dict, source: str) -> str | None:
+    """Try to extract a full address from scraped raw_data."""
+    if source == "rea":
+        details = raw_data.get("details", {})
+        listing = details.get("listing", raw_data)
+        address = listing.get("address", {})
+        if isinstance(address, dict):
+            # Try display variants
+            display = address.get("display", {})
+            if isinstance(display, dict):
+                full = display.get("fullAddress") or display.get("shortAddress")
+                if full:
+                    return full
+            elif isinstance(display, str) and display:
+                return display
+            # Construct from parts
+            parts = [
+                address.get("streetAddress", ""),
+                address.get("suburb", ""),
+                address.get("state", ""),
+                address.get("postcode", ""),
+            ]
+            addr = ", ".join(p for p in parts[:2] if p)
+            suffix = " ".join(p for p in parts[2:] if p)
+            if addr and suffix:
+                return f"{addr} {suffix}"
+            if addr:
+                return addr
+    elif source == "domain":
+        props = raw_data.get("props", {})
+        page_props = props.get("pageProps", {})
+        cp = page_props.get("componentProps", {})
+        summary = cp.get("listingSummary", {})
+        if summary.get("address"):
+            return summary["address"]
+        addr = cp.get("address") or summary.get("displayAddress")
+        if isinstance(addr, str) and addr:
+            return addr
+    return None
 
 
 async def _process_url(prop, url, snapshot):
@@ -49,11 +90,47 @@ async def _process_url(prop, url, snapshot):
             except Exception as e:
                 logger.warning(f"Image caching failed for {prop.address}: {e}")
 
+        # Fill in property details from scrape (for web-added stubs)
+        if not prop.sheet_row:
+            await _backfill_property(prop, snapshot)
+
         # Write sold details back to sheet if empty
         await _sync_sold_to_sheet(prop, snapshot)
 
     await db.update_last_checked(prop.id)
     return len(changes)
+
+
+async def _backfill_property(prop, snapshot):
+    """Update a web-added property with data from a successful scrape, and add to sheet."""
+    address = None
+    if snapshot.raw_data:
+        address = _extract_address(snapshot.raw_data, snapshot.source)
+
+    beds = snapshot.bedrooms
+    baths = snapshot.bathrooms
+    cars = snapshot.parking
+    details = ",".join(str(v) for v in [beds, baths, cars] if v is not None) or None
+    price = snapshot.price or None
+
+    if not address and not details and not price:
+        return
+
+    await db.backfill_property(prop.id, address, details, price)
+    if address:
+        logger.info(f"Backfilled address for {prop.id}: {address}")
+
+    # Append to Google Sheet and record the sheet_row
+    try:
+        sheet_row = append_property_to_sheet(
+            address or prop.address,
+            details or prop.details or "",
+            price or prop.advertised_price or "",
+            prop.url,
+        )
+        await db.set_sheet_row(prop.id, sheet_row)
+    except Exception as e:
+        logger.warning(f"Failed to append {prop.id} to sheet: {e}")
 
 
 async def _sync_sold_to_sheet(prop, snapshot):

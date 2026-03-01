@@ -67,6 +67,21 @@ def fetch_sheet_rows() -> list[Property]:
     return properties
 
 
+def append_property_to_sheet(address: str, details: str, price: str, url: str) -> int:
+    """Append a new property row to the Google Sheet. Returns the row number."""
+    client = _get_client()
+    sheet = client.open_by_key(settings.google_sheet_id)
+    worksheet = sheet.sheet1
+
+    # Columns: Address, Details, Area, Advertised Price, Sold Price, Sold Date, Notes, URL, URL2
+    row = [address, details, "", price, "", "", "", url, ""]
+    worksheet.append_row(row, value_input_option="USER_ENTERED")
+    # Row number = total rows (append adds at the end)
+    row_num = len(worksheet.get_all_values())
+    logger.info(f"Appended to sheet row {row_num}: {address}")
+    return row_num
+
+
 def update_sold_on_sheet(sheet_row: int, sold_price: str, sold_date: str):
     """Write sold_price and/or sold_date back to the Google Sheet."""
     client = _get_client()

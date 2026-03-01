@@ -2,7 +2,13 @@ import { env } from '$env/dynamic/private';
 import sql from './db';
 import crypto from 'node:crypto';
 
+let _logged = false;
+
 export async function validateCredentials(email: string, password: string): Promise<boolean> {
+    if (!_logged) {
+        _logged = true;
+        console.log(`[auth] AUTH_EMAIL=${env.AUTH_EMAIL ? env.AUTH_EMAIL : '(not set)'}, AUTH_PASSWORD=${env.AUTH_PASSWORD ? '***' : '(not set)'}`);
+    }
     return email === env.AUTH_EMAIL && password === env.AUTH_PASSWORD;
 }
 

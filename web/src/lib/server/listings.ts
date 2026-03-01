@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import { createHash, createSign } from 'node:crypto';
+import { env } from '$env/dynamic/private';
 import sql from '$lib/server/db';
 
 function propertyId(address: string): string {
@@ -47,17 +48,17 @@ function addressFromDomainSlug(url: string): string {
 
 /** Extract address from REA URL slug. */
 function addressFromReaSlug(url: string): string {
-    // /property-house-vic+melbourne-123 or /property-house+in-suburb+name-state-1234
+    // REA format: /property-{type}-{state}-{suburb}-{id}
+    // e.g. /property-house-vic-mornington-140175408
     const path = new URL(url).pathname;
-    // Match: /property-{type}-{suburb+parts}-{state}-{id}
-    const m = path.match(/^\/property-[^-]+-(.+)-(\w{2,3})-(\d+)$/);
+    const m = path.match(/^\/property-[a-z]+-([a-z]{2,3})-(.+)-(\d+)$/);
     if (m) {
-        const suburb = m[1].replace(/\+/g, ' ').replace(/-/g, ' ');
-        const state = m[2].toUpperCase();
+        const state = m[1].toUpperCase();
+        const suburb = m[2].replace(/[+-]/g, ' ').replace(/\s*\d{4}$/, '');
         return `${titleCase(suburb)}, ${state}`;
     }
-    // Fallback: just clean the slug
-    const slug = path.replace(/^\/property-/, '').replace(/-\d+$/, '');
+    // Fallback: strip type and id, clean the rest
+    const slug = path.replace(/^\/property-[a-z]+-/, '').replace(/-\d+$/, '');
     return titleCase(slug.replace(/[+-]/g, ' '));
 }
 
@@ -154,6 +155,8 @@ async function addDomainListing(url: string): Promise<string> {
             fetched_at = NOW()
     `;
 
+    await appendToSheet(address, url, details, price);
+
     return address;
 }
 
@@ -170,7 +173,78 @@ async function addReaListing(url: string): Promise<string> {
             updated_at = NOW()
     `;
 
+    await appendToSheet(address, url);
+
     return address;
+}
+
+// --- Google Sheets append (service account JWT auth) ---
+
+function base64url(data: string | Buffer): string {
+    const buf = typeof data === 'string' ? Buffer.from(data) : data;
+    return buf.toString('base64url');
+}
+
+async function getAccessToken(): Promise<string> {
+    const creds = JSON.parse(env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}');
+    if (!creds.client_email || !creds.private_key) {
+        throw new Error('Google service account credentials not configured');
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+    const payload = base64url(JSON.stringify({
+        iss: creds.client_email,
+        scope: 'https://www.googleapis.com/auth/spreadsheets',
+        aud: 'https://oauth2.googleapis.com/token',
+        iat: now,
+        exp: now + 3600,
+    }));
+
+    const sign = createSign('RSA-SHA256');
+    sign.update(`${header}.${payload}`);
+    const signature = sign.sign(creds.private_key, 'base64url');
+
+    const jwt = `${header}.${payload}.${signature}`;
+
+    const resp = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
+    });
+
+    if (!resp.ok) {
+        throw new Error(`Google token exchange failed: ${resp.status}`);
+    }
+
+    const body = await resp.json() as { access_token: string };
+    return body.access_token;
+}
+
+async function appendToSheet(address: string, url: string, details?: string | null, price?: string) {
+    const sheetId = env.GOOGLE_SHEET_ID;
+    if (!sheetId) return; // no sheet configured
+
+    try {
+        const token = await getAccessToken();
+        const range = 'Sheet1!A:I';
+        const apiUrl = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+
+        // Columns: Address, Details, Area, Advertised Price, Sold Price, Sold Date, Notes, URL, URL2
+        const row = [address, details ?? '', '', price ?? '', '', '', '', url, ''];
+
+        await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ values: [row] }),
+        });
+    } catch (e) {
+        // Non-fatal — property is still in DB
+        console.error('Failed to append to Google Sheet:', e);
+    }
 }
 
 export async function parseAndAddListing(url: string): Promise<string> {

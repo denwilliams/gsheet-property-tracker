@@ -142,6 +142,30 @@ async def save_changes(property_id: str, url: str, changes: list[Change]):
             )
 
 
+async def set_sheet_row(property_id: str, sheet_row: int):
+    pool = await get_pool()
+    await pool.execute(
+        "UPDATE properties SET sheet_row = $2 WHERE id = $1",
+        property_id, sheet_row,
+    )
+
+
+async def backfill_property(property_id: str, address: str | None, details: str | None, price: str | None):
+    """Fill in empty fields on a web-added property from scraped data."""
+    pool = await get_pool()
+    await pool.execute(
+        """
+        UPDATE properties SET
+            address = COALESCE($2, address),
+            details = COALESCE($3, details),
+            advertised_price = COALESCE($4, advertised_price),
+            updated_at = NOW()
+        WHERE id = $1 AND sheet_row IS NULL
+        """,
+        property_id, address, details, price,
+    )
+
+
 async def update_sold_details(property_id: str, sold_price: str, sold_date: str):
     """Update sold_price and/or sold_date on a property if currently empty."""
     pool = await get_pool()
